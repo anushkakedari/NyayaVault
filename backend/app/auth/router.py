@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_roles
+from app.auth.roles import Role
 
 # document schemas
 from app.auth.schemas import (
@@ -112,3 +114,15 @@ def get_me(
     current_user: User = Depends(get_current_user),
 ):
     return current_user
+
+@router.get("/admin-test")
+def admin_test(
+    current_user: User = Depends(
+        require_roles(Role.ADMIN)
+    ),
+):
+    return {
+        "message": "Admin access granted",
+        "user": current_user.email,
+        "role": current_user.role,
+    }
