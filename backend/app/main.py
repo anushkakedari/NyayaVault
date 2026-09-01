@@ -1,15 +1,17 @@
 from fastapi import FastAPI
 
-app = FastAPI(
-    title="NyayaVault API",
-    description="Secure Digital Evidence & Legal Document Management System",
-    version="1.0.0"
-)
+from app.auth.router import router as auth_router
+from app.db.database import Base, engine
+from app.db import models
+
+
+app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
+
+app.include_router(auth_router)
 
 
 @app.get("/health")
-def health_check():
-    return {
-        "status": "ok",
-        "service": "NyayaVault API"
-    }
+def health():
+    return {"status": "ok"}
