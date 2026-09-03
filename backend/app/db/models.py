@@ -158,3 +158,25 @@ class AuditLog(Base):
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     action = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class BlockchainRecord(Base):
+    __tablename__ = "blockchain_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(
+        Integer,
+        ForeignKey("documents.id"),
+        nullable=False,
+    )
+    document_hash = Column(String, nullable=False)
+    previous_hash = Column(String, nullable=False)
+    block_hash = Column(
+        String,
+        unique=True,
+        nullable=False,
+    )
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )

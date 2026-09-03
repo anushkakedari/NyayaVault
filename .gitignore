@@ -26,4 +26,4 @@ Thumbs.db
 *.log
 
 # Encrypted uploaded documents
-storage/documents/*.enc
+backend/backend/storage/documents/*.enc

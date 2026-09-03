@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.db.database import get_db
-from app.db.models import Document, User, AuditLog
+from app.db.models import (
+    Document,
+    User,
+    AuditLog,
+    BlockchainRecord,
+)
 from app.services.document_service import (
     calculate_sha256,
     validate_file,
@@ -24,6 +29,10 @@ from app.services.encryption_service import (
     encrypt_file,
 )
 
+from app.services.blockchain_service import (
+    create_block,
+    verify_block,
+)
 
 router = APIRouter(
     prefix="/documents",
@@ -43,6 +52,39 @@ def create_audit_log(db, user_id, document_id, action):
     db.add(audit_log)
     db.commit()
 
+
+def create_blockchain_record(db, document_id, document_hash):
+    previous_block = (
+        db.query(BlockchainRecord)
+        .order_by(BlockchainRecord.id.desc())
+        .first()
+    )
+
+    previous_hash = (
+        previous_block.block_hash
+        if previous_block
+        else "0" * 64
+    )
+
+    block = create_block(
+        document_id=document_id,
+        document_hash=document_hash,
+        previous_hash=previous_hash,
+    )
+
+    blockchain_record = BlockchainRecord(
+        document_id=block["document_id"],
+        document_hash=block["document_hash"],
+        previous_hash=block["previous_hash"],
+        block_hash=block["block_hash"],
+        created_at=block["created_at"],
+    )
+
+    db.add(blockchain_record)
+    db.commit()
+    db.refresh(blockchain_record)
+
+    return blockchain_record
 
 @router.post(
     "/upload",
@@ -102,6 +144,12 @@ async def upload_document(
     db.commit()
     db.refresh(document)
 
+    create_blockchain_record(
+    db=db,
+    document_id=document.id,
+    document_hash=document.sha256_hash,
+    )
+
     create_audit_log(
     db,
     current_user.id,
@@ -121,6 +169,103 @@ async def upload_document(
             "created_at": document.created_at,
         },
     }
+
+
+
+@router.get("/{document_id}/verify-integrity")
+def verify_document_integrity(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found",
+        )
+
+    if document.uploaded_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this document",
+        )
+
+    storage_path = Path(document.storage_path)
+
+    if not storage_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Stored document file not found",
+        )
+
+    encrypted_data = storage_path.read_bytes()
+
+    # Step 1: Decrypt the encrypted document
+    try:
+        decrypted_data = decrypt_file(
+            encrypted_data,
+            document.encryption_nonce,
+        )
+    except Exception:
+        return {
+            "document_id": document.id,
+            "database_hash_valid": False,
+            "blockchain_hash_valid": False,
+            "blockchain_record_exists": False,
+            "integrity_status": "TAMPERED",
+            "message": "Document decryption failed. The file may have been tampered with.",
+        }
+
+    # Step 2: Calculate the current document hash
+    current_hash = calculate_sha256(decrypted_data)
+
+    # Step 3: Compare with the original database hash
+    database_hash_valid = (
+        current_hash == document.sha256_hash
+    )
+
+    # Step 4: Fetch the blockchain record
+    blockchain_record = (
+        db.query(BlockchainRecord)
+        .filter(
+            BlockchainRecord.document_id == document.id
+        )
+        .order_by(BlockchainRecord.id.desc())
+        .first()
+    )
+
+    blockchain_record_exists = (
+        blockchain_record is not None
+    )
+
+    # Step 5: Verify the blockchain record
+    blockchain_hash_valid = (
+        blockchain_record_exists
+        and verify_block(blockchain_record)
+        and blockchain_record.document_hash == current_hash
+    )
+
+    # Step 6: Final integrity decision
+    integrity_status = (
+        "VERIFIED"
+        if database_hash_valid and blockchain_hash_valid
+        else "TAMPERED"
+    )
+
+    return {
+        "document_id": document.id,
+        "database_hash_valid": database_hash_valid,
+        "blockchain_hash_valid": blockchain_hash_valid,
+        "blockchain_record_exists": blockchain_record_exists,
+        "integrity_status": integrity_status,
+    }
+
 
 
 @router.get("/{document_id}/download")
@@ -167,10 +312,15 @@ def download_document(
             document.encryption_nonce,
         )
 
+    # except Exception:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         detail="Document decryption failed",
+    #     )
     except Exception:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Document decryption failed",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Document integrity verification failed. The encrypted file may have been tampered with.",
         )
 
     # Verify document integrity
@@ -182,6 +332,33 @@ def download_document(
             detail="Document integrity verification failed",
         )
 
+    # Verify document integrity against blockchain record
+    blockchain_record = (
+        db.query(BlockchainRecord)
+        .filter(
+            BlockchainRecord.document_id == document.id
+        )
+        .order_by(BlockchainRecord.id.desc())
+        .first()
+    )
+
+    if not blockchain_record:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Blockchain record not found",
+        )
+
+    if not verify_block(blockchain_record):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Blockchain verification failed",
+        )
+
+    if blockchain_record.document_hash != current_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Blockchain document hash mismatch",
+        )
     
     create_audit_log(
     db,
