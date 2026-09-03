@@ -1,8 +1,18 @@
 from datetime import datetime
 
+# from sqlalchemy import (
+#     BigInteger,
+#     Boolean,
+#     DateTime,
+#     ForeignKey,
+#     Integer,
+#     String,
+# )
+
 from sqlalchemy import (
-    BigInteger,
+     BigInteger,
     Boolean,
+    Column,
     DateTime,
     ForeignKey,
     Integer,
@@ -139,3 +149,12 @@ class Document(Base):
         "User",
         back_populates="documents",
     )
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    action = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

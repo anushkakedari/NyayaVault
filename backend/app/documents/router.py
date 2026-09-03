@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.db.database import get_db
-from app.db.models import Document, User
+from app.db.models import Document, User, AuditLog
 from app.services.document_service import (
     calculate_sha256,
     validate_file,
@@ -33,6 +33,15 @@ router = APIRouter(
 
 STORAGE_DIR = Path("storage/documents")
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+def create_audit_log(db, user_id, document_id, action):
+    audit_log = AuditLog(
+        user_id=user_id,
+        document_id=document_id,
+        action=action,
+    )
+    db.add(audit_log)
+    db.commit()
 
 
 @router.post(
@@ -92,6 +101,13 @@ async def upload_document(
     db.add(document)
     db.commit()
     db.refresh(document)
+
+    create_audit_log(
+    db,
+    current_user.id,
+    document.id,
+    "UPLOAD",
+    )
 
     return {
         "message": "Document uploaded successfully",
@@ -165,6 +181,14 @@ def download_document(
             status_code=status.HTTP_409_CONFLICT,
             detail="Document integrity verification failed",
         )
+
+    
+    create_audit_log(
+    db,
+    current_user.id,
+    document.id,
+    "DOWNLOAD",
+    ) 
 
     # Return original document
     return Response(
