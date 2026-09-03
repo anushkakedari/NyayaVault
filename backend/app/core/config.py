@@ -26,6 +26,21 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+
+    # JWT configuration
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Document encryption
+    DOCUMENT_ENCRYPTION_KEY: str
+
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+
+    )
     @property
     def database_url(self) -> str:
         return (
