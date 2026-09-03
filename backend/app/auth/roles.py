@@ -6,3 +6,4 @@ class Role(str, Enum):
     INVESTIGATOR = "INVESTIGATOR"
     LEGAL_OFFICER = "LEGAL_OFFICER"
     VIEWER = "VIEWER"
+    
