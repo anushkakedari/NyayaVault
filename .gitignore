@@ -27,3 +27,5 @@ Thumbs.db
 
 # Encrypted uploaded documents
 backend/backend/storage/documents/*.enc
+
+backend/storage/
