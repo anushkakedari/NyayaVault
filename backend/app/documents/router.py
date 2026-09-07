@@ -5,6 +5,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,   #added while case
     HTTPException,
     UploadFile,
     status,
@@ -19,6 +20,8 @@ from app.db.models import (
     User,
     AuditLog,
     BlockchainRecord,
+    Case,
+    CaseMember,
 )
 from app.services.document_service import (
     calculate_sha256,
@@ -42,6 +45,70 @@ router = APIRouter(
 
 STORAGE_DIR = Path("storage/documents")
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def can_access_case(
+    case_id: int,
+    current_user: User,
+    db: Session,
+) -> bool:
+    """Check whether the user can access a case."""
+
+    # System administrators have administrative access.
+    if current_user.role == "ADMIN":
+        return True
+
+    # The case creator can access their own case.
+    case = db.query(Case).filter(Case.id == case_id).first()
+
+    if not case:
+        return False
+
+    if case.created_by == current_user.id:
+        return True
+
+    # Other users must be assigned to the case.
+    membership = (
+        db.query(CaseMember)
+        .filter(
+            CaseMember.case_id == case_id,
+            CaseMember.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    return membership is not None
+
+
+def can_upload_to_case(
+    case_id: int,
+    current_user: User,
+    db: Session,
+) -> bool:
+    """Check whether the user can upload evidence to a case."""
+
+    # The case creator can upload.
+    case = db.query(Case).filter(Case.id == case_id).first()
+
+    if not case:
+        return False
+
+    if case.created_by == current_user.id:
+        return True
+
+    # Only INVESTIGATOR members can upload.
+    membership = (
+        db.query(CaseMember)
+        .filter(
+            CaseMember.case_id == case_id,
+            CaseMember.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    return membership is not None and membership.role == "INVESTIGATOR"
+
+
 
 def create_audit_log(db, user_id, document_id, action):
     audit_log = AuditLog(
@@ -92,6 +159,7 @@ def create_blockchain_record(db, document_id, document_hash):
 )
 async def upload_document(
     file: UploadFile = File(...),
+    case_id: int | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -99,6 +167,34 @@ async def upload_document(
     file_data = await file.read()
 
     file_size = len(file_data)
+
+    # Validate case if a case_id was provided
+    case = None
+
+    if case_id is not None:
+        case = (
+            db.query(Case)
+            .filter(Case.id == case_id)
+            .first()
+        )
+
+        if not case:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Case not found",
+            )
+
+        # if case.created_by != current_user.id:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_403_FORBIDDEN,
+        #         detail="You do not have permission to upload to this case",
+        #     )
+
+        if not can_upload_to_case(case_id, current_user, db):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to upload to this case",
+            )
 
     # Validate file
     try:
@@ -138,6 +234,7 @@ async def upload_document(
         encryption_nonce=encryption_nonce,
         storage_path=str(storage_path),
         uploaded_by=current_user.id,
+        case_id=case_id,
     )
 
     db.add(document)
@@ -190,11 +287,41 @@ def verify_document_integrity(
             detail="Document not found",
         )
 
-    if document.uploaded_by != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to access this document",
-        )
+    # if document.uploaded_by != current_user.id:
+    #     raise HTTPException(
+    #         status_code=403,
+    #         detail="You do not have permission to access this document",
+    #     )
+    # if document.case_id is not None:
+    #     if not can_access_case(document.case_id, current_user, db):
+    #         raise HTTPException(
+    #             status_code=403,
+    #             detail="You do not have permission to access this document",
+    #         )
+    # else:
+    #     # Legacy documents without a case remain accessible
+    #     # only to their original uploader.
+    #     if document.uploaded_by != current_user.id:
+    #         raise HTTPException(
+    #             status_code=403,
+    #             detail="You do not have permission to access this document",
+    #         )
+
+    # Check case-based access
+    if document.case_id is not None:
+        if not can_access_case(document.case_id, current_user, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this document",
+            )
+    else:
+        # Documents without a case remain accessible
+        # only to their original uploader.
+        if document.uploaded_by != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this document",
+            )
 
     storage_path = Path(document.storage_path)
 
@@ -288,11 +415,27 @@ def download_document(
         )
 
     # Check document ownership
-    if document.uploaded_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to access this document",
-        )
+    # if document.uploaded_by != current_user.id:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="You do not have permission to access this document",
+    #     )
+
+    # Check case-based access
+    if document.case_id is not None:
+        if not can_access_case(document.case_id, current_user, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this document",
+            )
+    else:
+        # Documents without a case remain accessible
+        # only to their original uploader.
+        if document.uploaded_by != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this document",
+            )
 
     # Read encrypted file
     storage_path = Path(document.storage_path)
