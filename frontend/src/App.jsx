@@ -130,124 +130,6 @@ function StatCard({
 
 // ---------------- LOGIN SCREEN ----------------
 
-// function LoginScreen({ onLogin }) {
-//   const [email, setEmail] = useState("");
-//   const [password, setPassword] = useState("");
-
-//   const [loading, setLoading] = useState(false);
-//   const [error, setError] = useState("");
-
-//   const handleSubmit = async (event) => {
-//     event.preventDefault();
-
-//     if (!email || !password) {
-//       setError("Please enter your email and password.");
-//       return;
-//     }
-
-//     try {
-//       setLoading(true);
-//       setError("");
-
-//       const result = await loginUser(email, password);
-
-//       if (!result?.access_token) {
-//         throw new Error(
-//           "Login succeeded, but no access token was returned."
-//         );
-//       }
-
-//       localStorage.setItem(
-//         "access_token",
-//         result.access_token
-//       );
-
-//       onLogin(result.access_token);
-//     } catch (loginError) {
-//       setError(
-//         loginError.message || "Login failed."
-//       );
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <Box className="login-page">
-//       <Paper className="login-card" elevation={0}>
-//         <Box className="login-brand">
-//           <Box className="brand-mark">
-//             <ShieldOutlined />
-//           </Box>
-
-//           <Typography className="brand-name">
-//             NyayaVault
-//           </Typography>
-
-//           <Typography className="brand-subtitle">
-//             Secure evidence platform
-//           </Typography>
-//         </Box>
-
-//         <Typography className="login-title">
-//           Welcome back
-//         </Typography>
-
-//         <Typography className="login-description">
-//           Sign in to access your secure evidence vault.
-//         </Typography>
-
-//         {error && (
-//           <Alert
-//             severity="error"
-//             className="login-alert"
-//           >
-//             {error}
-//           </Alert>
-//         )}
-
-//         <Box
-//           component="form"
-//           onSubmit={handleSubmit}
-//           className="login-form"
-//         >
-//           <TextField
-//             label="Email"
-//             type="email"
-//             value={email}
-//             onChange={(event) =>
-//               setEmail(event.target.value)
-//             }
-//             fullWidth
-//             required
-//           />
-
-//           <TextField
-//             label="Password"
-//             type="password"
-//             value={password}
-//             onChange={(event) =>
-//               setPassword(event.target.value)
-//             }
-//             fullWidth
-//             required
-//           />
-
-//           <Button
-//             type="submit"
-//             variant="contained"
-//             fullWidth
-//             disabled={loading}
-//             className="login-button"
-//           >
-//             {loading ? "Signing in..." : "Login"}
-//           </Button>
-//         </Box>
-//       </Paper>
-//     </Box>
-//   );
-// }
-
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -261,11 +143,17 @@ function LoginScreen({ onLogin }) {
 
     try {
       const result = await loginUser(email, password);
+
+      if (!result?.access_token) {
+        throw new Error(
+          "Login succeeded, but no access token was returned."
+        );
+      }
+
       onLogin(result.access_token);
     } catch (error) {
       setLoginError(error.message || "Login failed");
-    } 
-    finally {
+    } finally {
       setLoggingIn(false);
     }
   };
@@ -275,7 +163,7 @@ function LoginScreen({ onLogin }) {
       <Box className="login-card">
         <Box className="login-brand">
           <Box className="login-brand-icon">
-            <ShieldOutlined  />
+            <ShieldOutlined />
           </Box>
 
           <Typography className="login-brand-name">
@@ -346,9 +234,7 @@ function LoginScreen({ onLogin }) {
 // ---------------- MAIN APP ----------------
 
 function App() {
-  const [activePage, setActivePage] =
-    useState("Dashboard");
-
+  const [activePage, setActivePage] = useState("Dashboard");
   const [searchValue, setSearchValue] = useState("");
 
   // Read the token only once when the app starts.
@@ -358,24 +244,31 @@ function App() {
 
   const [cases, setCases] = useState([]);
   const [realDocuments, setRealDocuments] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [selectedCaseId, setSelectedCaseId] = useState("");
 
-  const [loadingData, setLoadingData] =
-    useState(true);
-
-  const [selectedCaseId, setSelectedCaseId] =
-    useState("");
-
-  const [uploading, setUploading] =
-    useState(false);
+  // const [uploading, setUploading] = useState(false);
+  // const [message, setMessage] = useState("");
+  // const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [verifyingDocumentId, setVerifyingDocumentId] = useState(null);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  // Used to display the latest activity in the dashboard.
+  const [latestActivity, setLatestActivity] = useState({
+    type: "upload",
+    title: "New document uploaded",
+    description: "Your latest evidence record",
+  });
 
   const fileInputRef = useRef(null);
 
   // ---------------- LOGIN / LOGOUT ----------------
 
   const handleLogin = (newToken) => {
+    localStorage.setItem("access_token", newToken);
     setToken(newToken);
   };
 
@@ -394,7 +287,6 @@ function App() {
 
   useEffect(() => {
     async function loadDashboardData() {
-      // Do not call /cases/ without a token.
       if (!token) {
         setLoadingData(false);
         return;
@@ -450,8 +342,6 @@ function App() {
             "Failed to load dashboard data."
         );
 
-        // If the token is expired or invalid,
-        // return the user to the login screen.
         if (
           loadError.message?.includes("401") ||
           loadError.message
@@ -566,6 +456,15 @@ function App() {
         ...previousDocuments,
       ]);
 
+      // setMessage(
+      //   `${uploadedDocument.original_filename} uploaded and secured successfully.`
+      // );
+      setLatestActivity({
+        type: "upload",
+        title: "New document uploaded",
+        description: uploadedDocument.original_filename,
+      });
+
       setMessage(
         `${uploadedDocument.original_filename} uploaded and secured successfully.`
       );
@@ -582,36 +481,102 @@ function App() {
 
   // ---------------- VERIFY ----------------
 
-  const handleVerify = async (documentId) => {
-    try {
-      setMessage("");
-      setError("");
+  // const handleVerify = async (documentId) => {
+  //   try {
+  //     setMessage("");
+  //     setError("");
 
-      if (!token) {
-        throw new Error("Please login first.");
-      }
+  //     if (!token) {
+  //       throw new Error("Please login first.");
+  //     }
 
-      const result = await verifyDocument(
-        documentId,
-        token
+  //     const result = await verifyDocument(
+  //       documentId,
+  //       token
+  //     );
+
+  //     if (result.integrity_status === "VERIFIED") {
+  //       setRealDocuments((previousDocuments) =>
+  //         previousDocuments.map((document) =>
+  //           document.id === documentId
+  //             ? {
+  //                 ...document,
+  //                 integrity_status: "VERIFIED",
+  //               }
+  //             : document
+  //         )
+  //       );
+
+  //       setMessage(
+  //         `Document #${documentId} passed database and blockchain verification.`
+  //       );
+  //     } else {
+  //       setError(
+  //         `Document #${documentId} failed integrity verification.`
+  //       );
+  //     }
+  //   } catch (verifyError) {
+  //     setError(
+  //       verifyError.message ||
+  //         "Document verification failed."
+  //     );
+  //   }
+  // };
+
+  // ---------------- VERIFY ----------------
+
+const handleVerify = async (documentId) => {
+  try {
+    setMessage("");
+    setError("");
+
+    if (!token) {
+      throw new Error("Please login first.");
+    }
+
+    setVerifyingDocumentId(documentId);
+
+    const result = await verifyDocument(
+      documentId,
+      token
+    );
+
+    if (result?.integrity_status === "VERIFIED") {
+      // Update the document status in the frontend.
+      setRealDocuments((previousDocuments) =>
+        previousDocuments.map((document) =>
+          Number(document.id) === Number(documentId)
+            ? {
+                ...document,
+                integrity_status: "VERIFIED",
+              }
+            : document
+        )
       );
 
-      if (result.integrity_status === "VERIFIED") {
-        setMessage(
-          `Document #${documentId} passed database and blockchain verification.`
-        );
-      } else {
-        setError(
-          `Document #${documentId} failed integrity verification.`
-        );
-      }
-    } catch (verifyError) {
+      setLatestActivity({
+        type: "verified",
+        title: "Document verified",
+        description: `Document #${documentId} passed its integrity check`,
+      });
+
+      setMessage(
+        `Document #${documentId} passed database and blockchain verification.`
+      );
+    } else {
       setError(
-        verifyError.message ||
-          "Document verification failed."
+        `Document #${documentId} failed integrity verification.`
       );
     }
-  };
+  } catch (verifyError) {
+    setError(
+      verifyError.message ||
+        "Document verification failed."
+    );
+  } finally {
+    setVerifyingDocumentId(null);
+  }
+};
 
   // ---------------- DOWNLOAD ----------------
 
@@ -972,7 +937,10 @@ function App() {
 
               <StatCard
                 icon={<VerifiedUserOutlined />}
-                value={realDocuments.length}
+                value={realDocuments.filter(
+                  (doc) =>
+                    doc.integrity_status === "VERIFIED"
+                ).length}
                 label="Verified documents"
                 caption="Integrity checks passed"
                 accent
@@ -1062,10 +1030,30 @@ function App() {
                           </Typography>
                         </Box>
 
+                        {/* <Chip
+                          icon={<VerifiedUserOutlined />}
+                          label={
+                            document.integrity_status ===
+                            "VERIFIED"
+                              ? "Verified"
+                              : "Pending"
+                          }
+                          className="verified-chip"
+                          size="small"
+                        /> */}
                         <Chip
                           icon={<VerifiedUserOutlined />}
-                          label="Verified"
-                          className="verified-chip"
+                          label={
+                            document.integrity_status === "VERIFIED"
+                              ? "Verified"
+                              : "Pending"
+                          }
+                          color={
+                            document.integrity_status === "VERIFIED"
+                              ? "success"
+                              : "warning"
+                          }
+                          variant="outlined"
                           size="small"
                         />
 
@@ -1073,7 +1061,7 @@ function App() {
                           direction="row"
                           spacing={1}
                         >
-                          <Button
+                          {/* <Button
                             size="small"
                             variant="outlined"
                             onClick={() =>
@@ -1081,6 +1069,23 @@ function App() {
                             }
                           >
                             Verify
+                          </Button> */}
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() =>
+                              handleVerify(document.id)
+                            }
+                            disabled={
+                              verifyingDocumentId === document.id ||
+                              document.integrity_status === "VERIFIED"
+                            }
+                          >
+                            {verifyingDocumentId === document.id
+                              ? "Verifying..."
+                              : document.integrity_status === "VERIFIED"
+                              ? "Verified"
+                              : "Verify"}
                           </Button>
 
                           <Button
@@ -1153,7 +1158,7 @@ function App() {
                     View security details
                   </Button>
                 </Paper>
-
+{/* 
                 <Paper
                   className="activity-card"
                   elevation={0}
@@ -1190,6 +1195,53 @@ function App() {
 
                       <Typography className="activity-meta">
                         Your latest evidence record
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Box className="activity-item">
+                    <Box className="activity-dot blue" />
+
+                    <Box>
+                      <Typography className="activity-title">
+                        Audit record created
+                      </Typography>
+
+                      <Typography className="activity-meta">
+                        Secure activity tracking enabled
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Paper> */}
+
+                <Paper
+                  className="activity-card"
+                  elevation={0}
+                >
+                  <Typography className="panel-title">
+                    Recent activity
+                  </Typography>
+
+                  <Typography className="panel-subtitle">
+                    Latest actions in your vault
+                  </Typography>
+
+                  <Box className="activity-item">
+                    <Box
+                      className={`activity-dot ${
+                        latestActivity.type === "verified"
+                          ? "green"
+                          : "gold"
+                      }`}
+                    />
+
+                    <Box>
+                      <Typography className="activity-title">
+                        {latestActivity.title}
+                      </Typography>
+
+                      <Typography className="activity-meta">
+                        {latestActivity.description}
                       </Typography>
                     </Box>
                   </Box>
